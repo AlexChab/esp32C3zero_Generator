@@ -1,110 +1,3 @@
-// #include <Adafruit_NeoPixel.h>
-// #include <Arduino.h>
-
-// #include "driver/ledc.h"
-
-// #define PWM_PIN_A 2
-// #define PWM_PIN_B 3
-// #define RGB_LED_PIN 10  // led pin for RGB status indicator
-// #define NUM_PIXELS 1
-
-// // initi object for RGB status indicator
-// Adafruit_NeoPixel pixels(NUM_PIXELS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
-
-// unsigned long flashDuration = 500;  // Duration for which the LED will stay on during the flash (in milliseconds)
-// const ledc_mode_t speed_mode = LEDC_LOW_SPEED_MODE;
-// const ledc_timer_t timer_num = LEDC_TIMER_0;
-// uint32_t current_freq = 1000;
-
-// unsigned long lastTick = 0;
-// bool ledState = false;
-
-// void setup_pwm(uint32_t freq) {
-//   ledc_timer_config_t ledc_timer = {
-//       .speed_mode = speed_mode,
-//       .duty_resolution = LEDC_TIMER_10_BIT,
-//       .timer_num = timer_num,
-//       .freq_hz = freq,
-//       .clk_cfg = LEDC_AUTO_CLK};
-//   ledc_timer_config(&ledc_timer);
-
-//   ledc_channel_config_t ch_a = {
-//       .gpio_num = PWM_PIN_A,
-//       .speed_mode = speed_mode,
-//       .channel = LEDC_CHANNEL_0,
-//       .intr_type = LEDC_INTR_DISABLE,
-//       .timer_sel = timer_num,
-//       .duty = 512,
-//       .hpoint = 0};
-//   ledc_channel_config(&ch_a);
-
-//   ledc_channel_config_t ch_b = {
-//       .gpio_num = PWM_PIN_B,
-//       .speed_mode = speed_mode,
-//       .channel = LEDC_CHANNEL_1,
-//       .intr_type = LEDC_INTR_DISABLE,
-//       .timer_sel = timer_num,
-//       .duty = 512,
-//       .hpoint = 512};
-//   ledc_channel_config(&ch_b);
-// }
-
-// void setup() {
-//   delay(2000);
-//   Serial.begin(115200);
-//   unsigned long start = millis();
-//   while (!Serial && (millis() - start < 5000)) {
-//     delay(10);
-//   }
-//   Serial.println("Система перезапущена и готова!");
-//   delay(5000);
-
-//   pixels.begin();
-//   pixels.setBrightness(10);
-//   pixels.setPixelColor(0, pixels.Color(255, 0, 0));  // red color for startup indication
-//   pixels.show();
-
-//   setup_pwm(current_freq);
-
-//   Serial.println("\n========================");
-//   Serial.println("--- Generator is ready  ---");
-//   Serial.printf("Freq: %u Hz\n", current_freq);
-//   Serial.printf("GPIO 2,3 pin 6,7 \n");
-//   Serial.println("========================");
-//   Serial.flush();
-// }
-
-// void loop() {
-//   // Entry frequency change via Serial input
-//   if (Serial.available() > 0) {
-//     char c = Serial.read();
-//     if (c == 'r') {
-//       Serial.println("Выполняю мягкий перезапуск...");
-//       ESP.restart();  // Команда на программную перезагрузку
-//     }
-//     long new_freq = Serial.parseInt();
-//     if (new_freq >= 10 && new_freq <= 80000) {
-//       current_freq = (uint32_t)new_freq;
-//       ledc_set_freq(speed_mode, timer_num, current_freq);
-//       Serial.printf("Set Freq: %u Hz\n", current_freq);
-//     }
-//     while (Serial.available() > 0) Serial.read();
-//   }
-
-//   if (millis() - lastTick > 15000) {
-//     lastTick = millis();
-//     ledState = true;
-//     pixels.setPixelColor(0, pixels.Color(0, 0, 255));  // Включить синий
-//     pixels.show();
-//   }
-
-//   if (ledState && (millis() - lastTick > flashDuration)) {
-//     ledState = false;
-//     pixels.setPixelColor(0, pixels.Color(0, 0, 0));  // Выключить
-//     pixels.show();
-//   }
-// }
-
 #include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
 
@@ -182,10 +75,10 @@ void update_ledc_config(uint32_t freq) {
 
 void setup() {
   Serial.begin(115200);
-
+  delay(2000);
   unsigned long start = millis();
   while (!Serial && (millis() - start < 5000)) {
-    delay(10);
+    delay(100);
   }
   Serial.println("System started and connected to Serial!");
   delay(5000);
@@ -209,45 +102,6 @@ void setup() {
 }
 
 void loop() {
-  // if (Serial.available() > 0) {
-  //   String input = Serial.readStringUntil('\n');
-  //   input.trim();
-  //   if (input.length() == 0) return;  // check for empty input
-
-  //   // soft reset command
-  //   if (input == "r") {
-  //     Serial.println("Soft reboot generator ...");
-  //     ESP.restart();
-  //   }
-
-  //   // 2. Проверка: состоит ли строка только из цифр
-  //   bool isNumber = true;
-
-  //   for (size_t i = 0; i < input.length(); i++) {
-  //     if (!isDigit(input[i])) {
-  //       isNumber = false;
-  //       break;
-  //     }
-  //   }
-
-  //   if (isNumber) {
-  //     long new_freq = input.toInt();
-
-  //     // 3. Проверка диапазона
-  //     if (new_freq >= 10 && new_freq <= 500000) {
-  //       current_freq = (uint32_t)new_freq;
-  //       update_ledc_config(current_freq);
-  //     } else {
-  //       Serial.printf("Error: %ld out of range! Please enter a value between 10 and 500000\n", new_freq);
-  //     }
-  //   } else {
-  //     // Если ввели текст (и это не "r")
-  //     Serial.print("Error: '");
-  //     Serial.print(input);
-  //     Serial.println("' is not a number!");
-  //   }
-  // }
-
   // Системное мигание
   // if (millis() - lastTick > 15000) {
   //   lastTick = millis();
