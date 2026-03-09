@@ -112,22 +112,29 @@
 
 #define PWM_PIN_A 2
 #define PWM_PIN_B 3
+
 #define RGB_LED_PIN 10
 #define NUM_PIXELS 1
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
 
 unsigned long flashDuration = 500;
+
 const ledc_mode_t speed_mode = LEDC_LOW_SPEED_MODE;
 const ledc_timer_t timer_num = LEDC_TIMER_0;
+
 uint32_t current_freq = 1000;
 
 unsigned long lastTick = 0;
-bool ledState = false;
+// bool ledState = false;
+float filling = 0.5;  // filling PWM
+ledc_timer_bit_t resolution;
+uint32_t max_duty = (1 << resolution);
+// uint32_t duty_val = max_duty / 2;  // 50% заполнение
+uint32_t duty_val = filling * ((1 << resolution) - 1);
 
 void update_ledc_config(uint32_t freq) {
   // Выбираем разрешение в зависимости от целевой частоты
-  ledc_timer_bit_t resolution;
   if (freq < 500) {
     resolution = LEDC_TIMER_13_BIT;  // Для низких частот
   } else if (freq < 50000) {
@@ -135,9 +142,6 @@ void update_ledc_config(uint32_t freq) {
   } else {
     resolution = LEDC_TIMER_7_BIT;  // Для высоких частот (до 500кГц+)
   }
-
-  uint32_t max_duty = (1 << resolution);
-  uint32_t duty_val = max_duty / 2;  // 50% заполнение
 
   ledc_timer_config_t ledc_timer = {
       .speed_mode = speed_mode,
@@ -173,80 +177,138 @@ void update_ledc_config(uint32_t freq) {
       .hpoint = (int)duty_val};
   ledc_channel_config(&ch_b);
 
-  Serial.printf("Режим: %d бит | Duty: %u | Freq: %u Hz\n", (int)resolution, duty_val, freq);
+  Serial.printf("Mode: %d bit | Duty: %u %% | Freq: %u Hz\n", (int)resolution, (uint32_t)(filling * 100), freq);
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(2000);
+
+  unsigned long start = millis();
+  while (!Serial && (millis() - start < 5000)) {
+    delay(10);
+  }
+  Serial.println("System started and connected to Serial!");
+  delay(5000);
 
   pixels.begin();
-  pixels.setBrightness(10);
-  pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+  pixels.setBrightness(5);
+  pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+  // pixels.clear();
   pixels.show();
 
-  update_ledc_config(current_freq);
   Serial.println("\n========================");
-  Serial.println("--- Generator is ready  ---");
+  Serial.println("--- Generator for ESP32-C3 ---");
   Serial.printf("Default Frequency: %u Hz\n", current_freq);
   Serial.printf("GPIO 2,3 pin 6,7 \n");
   Serial.println("Frequency range: 10 - 500 000 Hz ");
   Serial.println("========================");
   Serial.flush();
+
+  delay(1000);
+  update_ledc_config(current_freq);
 }
 
 void loop() {
+  // if (Serial.available() > 0) {
+  //   String input = Serial.readStringUntil('\n');
+  //   input.trim();
+  //   if (input.length() == 0) return;  // check for empty input
+
+  //   // soft reset command
+  //   if (input == "r") {
+  //     Serial.println("Soft reboot generator ...");
+  //     ESP.restart();
+  //   }
+
+  //   // 2. Проверка: состоит ли строка только из цифр
+  //   bool isNumber = true;
+
+  //   for (size_t i = 0; i < input.length(); i++) {
+  //     if (!isDigit(input[i])) {
+  //       isNumber = false;
+  //       break;
+  //     }
+  //   }
+
+  //   if (isNumber) {
+  //     long new_freq = input.toInt();
+
+  //     // 3. Проверка диапазона
+  //     if (new_freq >= 10 && new_freq <= 500000) {
+  //       current_freq = (uint32_t)new_freq;
+  //       update_ledc_config(current_freq);
+  //     } else {
+  //       Serial.printf("Error: %ld out of range! Please enter a value between 10 and 500000\n", new_freq);
+  //     }
+  //   } else {
+  //     // Если ввели текст (и это не "r")
+  //     Serial.print("Error: '");
+  //     Serial.print(input);
+  //     Serial.println("' is not a number!");
+  //   }
+  // }
+
+  // Системное мигание
+  // if (millis() - lastTick > 15000) {
+  //   lastTick = millis();
+  //   ledState = true;
+  //   pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+  //   pixels.show();
+  // }
+
+  // if (ledState && (millis() - lastTick > flashDuration)) {
+  //   ledState = false;
+  //   pixels.setPixelColor(0, pixels.Color(0, 0, 0));
+  //   pixels.show();
+  // }
+
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim();
+    if (input.length() < 1) return;
 
-    if (input.length() == 0) return;  // Игнорируем пустой ввод
-
-    // 1. Проверка на команду перезагрузки
+    // 1. Команда перезагрузки
     if (input == "r") {
-      Serial.println("Выполняю перезагрузку...");
+      Serial.println("Soft reboot...");
       ESP.restart();
+    } else if (input == "h") {
+      Serial.println("Available commands:");
+      Serial.println("f:XXX - Set frequency (10-500000 Hz)");
+      Serial.println("d:X.XX - Set duty cycle (0.0-1.0)");
+      Serial.println("r - Soft reboot");
     }
 
-    // 2. Проверка: состоит ли строка только из цифр
-    bool isNumber = true;
-    for (size_t i = 0; i < input.length(); i++) {
-      if (!isDigit(input[i])) {
-        isNumber = false;
-        break;
-      }
-    }
+    // 2. Установка частоты (формат f:5000)
+    else if (input.startsWith("f:")) {
+      String valStr = input.substring(2);  // Отрезаем "f:"
+      long new_freq = valStr.toInt();
 
-    if (isNumber) {
-      long new_freq = input.toInt();
-
-      // 3. Проверка диапазона
       if (new_freq >= 10 && new_freq <= 500000) {
         current_freq = (uint32_t)new_freq;
         update_ledc_config(current_freq);
       } else {
-        Serial.printf("Ошибка: %ld вне диапазона! Введите от 10 до 500000\n", new_freq);
+        Serial.println("Error: Frequency out of range (10-500000)");
       }
-    } else {
-      // Если ввели текст (и это не "r")
-      Serial.print("Ошибка: '");
-      Serial.print(input);
-      Serial.println("' не является числом!");
     }
-  }
 
-  // Системное мигание
-  if (millis() - lastTick > 15000) {
-    lastTick = millis();
-    ledState = true;
-    pixels.setPixelColor(0, pixels.Color(0, 0, 255));
-    pixels.show();
-  }
+    // 3. Установка заполнения (формат d:0.15)
+    else if (input.startsWith("d:")) {
+      String valStr = input.substring(2);  // Отрезаем "d:"
+      filling = valStr.toFloat();          // Преобразуем в 0.15
 
-  if (ledState && (millis() - lastTick > flashDuration)) {
-    ledState = false;
-    pixels.setPixelColor(0, pixels.Color(0, 0, 0));
-    pixels.show();
+      if (filling >= 0.0 && filling <= 1.0) {
+        max_duty = (1 << resolution) - 1;
+        duty_val = filling * max_duty;
+        update_ledc_config(current_freq);
+        // Serial.printf("Duty set to: %.2f (Value: %u)\n", filling, duty_val);
+      } else {
+        Serial.println("Error: Duty must be between 0.0 and 1.0");
+      }
+    }
+
+    else {
+      Serial.println("Unknown command. Use h for help.");
+    }
   }
 }
 
