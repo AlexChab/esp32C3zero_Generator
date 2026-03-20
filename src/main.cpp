@@ -130,6 +130,7 @@ void loop() {
       Serial.println("f:XXX - Set frequency (10-500000 Hz)");
       Serial.println("d:X.XX - Set duty cycle (0.0-1.0)");
       Serial.println("r - Soft reboot");
+      Serial.printf("GPIO 2,3 pin 6,7 out 2 channels freq. \n");
     }
 
     // 2. Установка частоты (формат f:5000)
