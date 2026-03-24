@@ -379,47 +379,152 @@
 // //     }
 // // }
 
+// #include <Adafruit_NeoPixel.h>
+// #include <Arduino.h>
+
+// #include "soc/gpio_reg.h"  // Библиотека с правильными именами регистров
+
+// #define PULSE_PIN 2
+
+// #define RGB_LED_PIN 10
+// #define NUM_PIXELS 1
+
+// Adafruit_NeoPixel pixels(NUM_PIXELS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// const uint32_t PIN_MASK = (1 << PULSE_PIN);
+
+// void setup() {
+//   pinMode(PULSE_PIN, OUTPUT);
+//   digitalWrite(PULSE_PIN, LOW);
+//   pixels.begin();
+//   pixels.setBrightness(5);
+//   pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+//   // pixels.clear();
+//   pixels.show();
+// }
+
+// void loop() {
+//   // 1. Отключаем прерывания (критически важно для наносекунд)
+//   noInterrupts();
+
+//   // 2. Генерация импульса
+//   // Используем встроенные макросы регистров C3
+//   REG_WRITE(GPIO_OUT_W1TS_REG, PIN_MASK);  // Установить HIGH
+
+//   // Попробуйте сначала БЕЗ nop.
+//   // Запись в регистр через шину APB на C3 может сама занять 2-3 такта.
+//   asm volatile("nop");
+
+//   REG_WRITE(GPIO_OUT_W1TC_REG, PIN_MASK);  // Установить LOW
+
+//   // 3. Включаем прерывания обратно
+//   interrupts();
+
+//   // Интервал повторения 500 мс
+//   delay(500);
+// }
+
 #include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
 
-#include "soc/gpio_reg.h"  // Библиотека с правильными именами регистров
+#include "driver/rmt.h"
 
-#define PULSE_PIN 2
+#define PULSE_PIN (gpio_num_t)2  // Ваш пин 2
+#define RMT_CH RMT_CHANNEL_1
 
 #define RGB_LED_PIN 10
 #define NUM_PIXELS 1
+unsigned long flashTick = 0;
+unsigned long delayTime = 500;
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
 
-const uint32_t PIN_MASK = (1 << PULSE_PIN);
-
 void setup() {
+  Serial.begin(115200);
   pinMode(PULSE_PIN, OUTPUT);
   digitalWrite(PULSE_PIN, LOW);
   pixels.begin();
-  pixels.setBrightness(5);
+  pixels.setBrightness(2);
+  int i = 1;
+  while (i <= 5) {
+    pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+    delay(200);
+    pixels.show();
+    pixels.setPixelColor(0, pixels.Color(0, 0, 0));
+    delay(100);
+    pixels.show();
+    i++;
+  }
   pixels.setPixelColor(0, pixels.Color(0, 0, 255));
-  // pixels.clear();
   pixels.show();
+  delay(500);
+
+  // pixels.clear();
+
+  // 1. Конфигурация RMT
+  rmt_config_t rmt_tx;
+  rmt_tx.rmt_mode = RMT_MODE_TX;
+  rmt_tx.channel = RMT_CH;
+  rmt_tx.gpio_num = PULSE_PIN;
+  rmt_tx.mem_block_num = 1;
+  rmt_tx.clk_div = 1;  // Делитель 1: частота 80 МГц
+
+  // Настройки для C3 (специфичные для чипа)
+  rmt_tx.tx_config.loop_en = false;
+  rmt_tx.tx_config.carrier_en = false;
+  rmt_tx.tx_config.idle_output_en = true;
+  rmt_tx.tx_config.idle_level = RMT_IDLE_LEVEL_LOW;
+
+  // 2. Установка драйвера
+  rmt_config(&rmt_tx);
+  rmt_driver_install(RMT_CH, 0, 0);
+}
+void help() {
+  Serial.println("Available commands:");
+  Serial.println("f[число] - частота (10-500000) Hz");
+  Serial.println("d[число] - задержка между импульсами (100-5000 ms)");
+  Serial.println("Example: f1000 sets frequency to 1 kHz");
+  Serial.println("Example: d500 sets delay to 500 ms");
 }
 
 void loop() {
-  // 1. Отключаем прерывания (критически важно для наносекунд)
-  noInterrupts();
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    // if (input.length() < 2) return;
 
-  // 2. Генерация импульса
-  // Используем встроенные макросы регистров C3
-  REG_WRITE(GPIO_OUT_W1TS_REG, PIN_MASK);  // Установить HIGH
+    char type = input[0];
+    long val = input.substring(1).toInt();
+    printf("Received command: %c with value: %ld\n", type, val);
 
-  // Попробуйте сначала БЕЗ nop.
-  // Запись в регистр через шину APB на C3 может сама занять 2-3 такта.
-  asm volatile("nop");
+    if (type == 'f' && val >= 10 && val <= 500000) {
+    } else if (type == 'd' && val >= 100 && val <= 5000) {
+      delayTime = (unsigned long)val;
+      printf("Cycle set to: %lu ms\n", delayTime);
+    } else if (type == 'h') {
+      help();
+    }
+  }
+  // 3. Создаем структуру импульса (Item)
+  // Формат: {длительность_1, уровень_1, длительность_2, уровень_2}
+  // duration1 = 1 (один тик 80МГц = 12.5 нс)
+  // level1 = 1 (HIGH)
+  // duration2 = 0 (конец сигнала)
+  // level2 = 0 (LOW)
+  rmt_item32_t pulse = {{{1, 1, 0, 0}}};
 
-  REG_WRITE(GPIO_OUT_W1TC_REG, PIN_MASK);  // Установить LOW
+  // 4. Отправка импульса в эфир
+  // true в конце означает "ждать завершения отправки"
+  rmt_write_items(RMT_CH, &pulse, 1, true);
 
-  // 3. Включаем прерывания обратно
-  interrupts();
-
-  // Интервал повторения 500 мс
-  delay(500);
+  delay(delayTime);  // Пауза полсекунды для удобства наблюдения на Siglent
+  flashTick++;
+  if (flashTick > 10 and flashTick < 15) {
+    pixels.setPixelColor(0, pixels.Color(100, 0, 0));
+    pixels.show();
+  } else if (flashTick > 20) {
+    flashTick = 0;
+    pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+    pixels.show();
+  }
 }
